@@ -8,6 +8,8 @@ using namespace daisysp;
 #define NUM_VOICES 32
 #define MAX_DELAY ((size_t)(10.0f * 48000.0f))
 
+MidiUsbHandler midi;
+
 
 // Hardware
 DaisyPatch hw;
@@ -40,10 +42,38 @@ void AudioCallback(AudioHandle::InputBuffer  in,
     hw.ProcessDigitalControls();
     hw.ProcessAnalogControls();
 
-    // Handle Triggering the Plucks
+    /** Listen to MIDI for new changes */
+    midi.Listen();
+
     trig = 0.0f;
-    if(hw.encoder.RisingEdge() || hw.gate_input[DaisyPatch::GATE_IN_1].Trig())
-        trig = 1.0f;
+
+    /** When there are messages waiting in the queue... */
+        while(midi.HasEvents())
+        {
+            /** Pull the oldest one from the list... */
+            auto msg = midi.PopEvent();
+            switch(msg.type)
+            {
+                case NoteOn:
+                {
+                    /** and change the frequency of the oscillator */
+                    auto note_msg = msg.AsNoteOn();
+                    if(note_msg.velocity != 0)
+                    {
+                         trig = 1.0f;
+                    }
+                }
+                break;
+                    // Since we only care about note-on messages in this example
+                    // we'll ignore all other message types
+                default: break;
+            }
+        }
+
+    // Handle Triggering the Plucks
+    //trig = 0.0f;
+    //if(hw.encoder.RisingEdge() || hw.gate_input[DaisyPatch::GATE_IN_1].Trig())
+        //trig = 1.0f;
 
     // Set MIDI Note for new Pluck notes.
     nn = 24.0f + hw.GetKnobValue(DaisyPatch::CTRL_1) * 60.0f;
@@ -90,6 +120,16 @@ int main(void)
     hw.Init();
     samplerate = hw.AudioSampleRate();
 
+    /** Initialize USB Midi 
+		 *  by default this is set to use the built in (USB FS) peripheral.
+		 * 
+		 *  by setting midi_cfg.transport_config.periph = MidiUsbTransport::Config::EXTERNAL
+		 *  the USB HS pins can be used (as FS) for MIDI 
+		 */
+    MidiUsbHandler::Config midi_cfg;
+    midi_cfg.transport_config.periph = MidiUsbTransport::Config::INTERNAL;
+    midi.Init(midi_cfg);
+
     //briefly display the module name
     std::string str  = "Pluck Echo";
     char *      cstr = &str[0];
@@ -112,5 +152,6 @@ int main(void)
     for(;;)
     {
         hw.DisplayControls(false);
+ 
     }
 }
